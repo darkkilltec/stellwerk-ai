@@ -5,6 +5,7 @@ import { embedMany } from "./embedding/client";
 import { embedSourceHash } from "./embedding/compose";
 import {
   DEFAULT_SYSTEM_PROMPT,
+  enforceScoreConsistency,
   judgeFitMany,
   type Judgment,
 } from "./reranking/client";
@@ -211,7 +212,8 @@ export async function judgeRetrieved(
         ...entry.match,
         vectorRank: entry.vectorRank,
         judgment: {
-          score: hit.score,
+          // Re-clamp on read: cache rows may predate the consistency guard.
+          score: enforceScoreConsistency(hit.score, hit.missingRequirements),
           reasoning: hit.reasoning,
           missingRequirements: hit.missingRequirements,
         },
@@ -298,7 +300,8 @@ export async function judgeRetrievedStreamed(
     const hit = cached.get(profileHash);
     const cachedJudgment: Judgment | null = hit
       ? {
-          score: hit.score,
+          // Re-clamp on read: cache rows may predate the consistency guard.
+          score: enforceScoreConsistency(hit.score, hit.missingRequirements),
           reasoning: hit.reasoning,
           missingRequirements: hit.missingRequirements,
         }

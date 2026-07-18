@@ -9,6 +9,7 @@ import { getDb } from "@/lib/db";
 import { embedSourceHash } from "@/lib/embedding/compose";
 import {
   DEFAULT_SYSTEM_PROMPT,
+  enforceScoreConsistency,
   judgeFit,
   RerankError,
   type RerankConfig,
@@ -134,7 +135,8 @@ async function judgeItem(
 
     const judgment = hit
       ? {
-          score: hit.score,
+          // Re-clamp on read: cache rows may predate the consistency guard.
+          score: enforceScoreConsistency(hit.score, hit.missingRequirements),
           reasoning: hit.reasoning,
           missingRequirements: hit.missingRequirements,
         }

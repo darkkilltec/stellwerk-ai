@@ -105,6 +105,25 @@ async function requestJudgment(
   );
 }
 
+// Deterministic consistency guard: a score may never contradict the
+// judge's own missing-requirements list. Small models drift here, and
+// prompt-side penalty rules backfire — they incentivize the model to
+// report fewer gaps (verified experimentally with qwen2.5:7b). So the
+// rule lives in code: ceilings by gap count, applied after parsing AND
+// after every cache read (older cache rows predate the guard).
+export const GAP_SCORE_CEILINGS = [100, 84, 74, 59] as const;
+
+export function enforceScoreConsistency(
+  score: number,
+  missingRequirements: string[],
+): number {
+  const ceiling =
+    GAP_SCORE_CEILINGS[
+      Math.min(missingRequirements.length, GAP_SCORE_CEILINGS.length - 1)
+    ];
+  return Math.min(score, ceiling);
+}
+
 function parseJudgment(raw: string): Judgment {
   const cleaned = raw
     .trim()
@@ -130,11 +149,15 @@ function parseJudgment(raw: string): Judgment {
       `Judgment JSON missing score/reasoning: ${cleaned.slice(0, 120)}`,
     );
   }
+  const missingRequirements = Array.isArray(obj.missing_requirements)
+    ? obj.missing_requirements.filter((m): m is string => typeof m === "string")
+    : [];
   return {
-    score: Math.max(0, Math.min(100, obj.score)),
+    score: enforceScoreConsistency(
+      Math.max(0, Math.min(100, obj.score)),
+      missingRequirements,
+    ),
     reasoning: obj.reasoning,
-    missingRequirements: Array.isArray(obj.missing_requirements)
-      ? obj.missing_requirements.filter((m): m is string => typeof m === "string")
-      : [],
+    missingRequirements,
   };
 }
