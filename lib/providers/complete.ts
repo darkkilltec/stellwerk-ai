@@ -71,6 +71,10 @@ export async function completeJson(
         model: cfg.model,
         stream: false,
         format: ollamaSchema,
+        // Thinking models (qwen3, deepseek-r1) would burn 30-60s on a
+        // reasoning chain before the schema-constrained JSON; the JSON
+        // answer is what we consume. Non-thinking models ignore this.
+        think: false,
         options: { temperature: 0 },
         messages: [
           { role: "system", content: systemPrompt },
