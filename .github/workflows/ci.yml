@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bunx tsc --noEmit
+
+  # The path a reviewer takes, from a fresh checkout: compose up the DB,
+  # migrate, seed, prove the bias structure, run the full embedding +
+  # matching mechanics against the committed mock provider, then build and
+  # boot the real app image. Semantic evals (eval:matching, eval:reranking,
+  # eval:bias) need a real model and run locally instead.
+  stack:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://app:app@localhost:5432/stellwerk
+      APP_PASSWORD: ci-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+
+      - name: Start database (healthcheck-gated)
+        run: docker compose up -d --wait db
+
+      - run: bun run db:migrate
+      - run: bun run db:seed
+      - run: bun run eval:structure
+
+      - name: Start mock embedding provider
+        run: |
+          nohup bun evals/mock-embed-server.ts 11435 > mock.log 2>&1 &
+          sleep 1
+          curl -sf -X POST http://localhost:11435/api/embed -d '{"model":"mock","input":["ping"]}' > /dev/null
+
+      - name: Configure embedding through the test gate
+        run: bun run db:configure -- --provider ollama --model mock-trigram --base-url http://localhost:11435
+
+      - run: bun run db:embed
+      - run: bun run eval:smoke
+
+      - name: Build and boot the app image (reviewer path)
+        run: |
+          docker compose up -d --build app
+          code=000
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000 || true)
+            [ "$code" = "200" ] && break
+            sleep 2
+          done
+          echo "app answered with HTTP $code"
+          [ "$code" = "200" ]
