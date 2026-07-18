@@ -1,0 +1,2 @@
+ALTER TABLE "candidates" ADD COLUMN "profile_tsv" "tsvector" GENERATED ALWAYS AS (to_tsvector('german', profile)) STORED;--> statement-breakpoint
+CREATE INDEX "candidates_profile_tsv_idx" ON "candidates" USING gin ("profile_tsv");

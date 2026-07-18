@@ -1,0 +1,42 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: stellwerk
+    ports:
+      # Host port is overridable via DB_PORT in .env for machines
+      # where 5432 is already taken; inside the network it stays 5432.
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d stellwerk"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Inside the compose network the DB is reachable via its service name,
+      # not localhost — this overrides any DATABASE_URL from .env.
+      DATABASE_URL: postgres://app:app@db:5432/stellwerk
+      # App secret (encrypts settings at rest) lives on its own volume.
+      SECRET_FILE: /data/app-secret
+    volumes:
+      - appdata:/data
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  appdata:
